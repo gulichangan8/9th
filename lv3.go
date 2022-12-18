@@ -31,19 +31,22 @@ type payload struct {
 }
 
 func Check(c *gin.Context, h Header, p payload, key string) bool {
-	username := c.PostForm("username")
-	password := c.PostForm("password")
+	username, err1 := c.GetPostForm("username")
+	password, err2 := c.GetPostForm("password")
+	if !err1 || !err2 {
+		return false
+	}
 	if allow[username] == password {
 		h.Alg = "HS256"
 		h.Typ = "JWT"
 		p.Aud = username
-		p.Iat = time.Now().Format("2006-01-02 15:04:05") + " " + strconv.FormatInt(time.Now().Unix(), 10)
-		p.Exp = time.Unix(time.Now().Unix()+24*60*60*1000, 0).Format("2006-01-02 15:04:05")
+		p.Iat = time.Now().Format("2006-01-02-15:04:05") + "," + strconv.FormatInt(time.Now().Unix(), 10)
+		p.Exp = time.Unix(time.Now().Unix()+24*60*60*1000, 0).Format("2006-01-02-15:04:05")
 		p.Sub = "Login"
 		date := base64.URLEncoding.EncodeToString([]byte(h.Alg+" "+h.Typ)) + "." +
 			base64.URLEncoding.EncodeToString([]byte(p.Aud+" "+p.Iat+" "+p.Exp+" "+p.Sub))
 		signature := HmacSha(key, date)
-		j := date + " " + signature
+		j := date + "." + signature
 		c.JSON(200, gin.H{
 			"JWT": j,
 		})
@@ -58,10 +61,10 @@ func HmacSha(key, date string) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-func VerifyHmac(JWT string, date string, key string) bool {
-	jwt := []byte(JWT)
-	now := HmacSha(date, key)
-	return hmac.Equal(jwt, []byte(now))
+func VerifyHmac(signature string, date string, key string) bool {
+	s := []byte(signature)
+	now := HmacSha(key, date)
+	return hmac.Equal(s, []byte(now))
 }
 
 func main() {
@@ -87,20 +90,25 @@ func cors() gin.HandlerFunc {
 		if !ok {
 			jwt := c.Request.Header.Get("Authorization")
 			jwts := strings.Split(jwt, ".")
-			header := jwts[0]
-			headers := strings.Split(header, " ")
+			H := jwts[0]
+			fmt.Println(H)
+			header, _ := base64.URLEncoding.DecodeString(H)
+			headers := strings.Split(string(header), " ")
 			h.Alg = headers[0]
 			h.Typ = headers[1]
-			payload := jwts[1]
+			Pd := jwts[1]
+			fmt.Println(Pd)
+			pd, _ := base64.URLEncoding.DecodeString(Pd)
+			payloads := strings.Split(string(pd), " ")
 			signature := jwts[2]
-			payloads := strings.Split(payload, " ")
 			p.Aud = payloads[0]
 			p.Iat = payloads[1]
 			p.Exp = payloads[2]
 			p.Sub = payloads[3]
 			date := base64.URLEncoding.EncodeToString([]byte(h.Alg+" "+h.Typ)) + "." +
 				base64.URLEncoding.EncodeToString([]byte(p.Aud+" "+p.Iat+" "+p.Exp+" "+p.Sub))
-			exps := strings.Split(p.Iat, " ")
+			fmt.Println(date)
+			exps := strings.Split(p.Iat, ",")
 			e, _ := strconv.Atoi(exps[1])
 			if e+24*60*60*1000 <= int(time.Now().Unix()) {
 				c.JSON(404, gin.H{
